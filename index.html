@@ -1,0 +1,775 @@
+<!doctype html>
+<html lang="ja">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
+    <meta name="color-scheme" content="light dark" />
+    <link rel="icon" href="data:," />
+    <title>出面表入力</title>
+    <style>
+      :root {
+        --bg: #eceeec;
+        --panel: #ffffff;
+        --ink: #1d2523;
+        --muted: #5b6a66;
+        --line: #cfd8d4;
+        --accent: #256d64;
+        --accent-ink: #ffffff;
+        --danger: #b3261e;
+        --bar-shadow: 0 -2px 14px rgba(20, 30, 28, 0.14);
+      }
+      @media (prefers-color-scheme: dark) {
+        :root {
+          --bg: #14181a;
+          --panel: #202628;
+          --ink: #e9edeb;
+          --muted: #9fb0aa;
+          --line: #3a4542;
+          --accent: #3d9c8e;
+          --accent-ink: #0d1514;
+          --danger: #f2a49e;
+          --bar-shadow: 0 -2px 14px rgba(0, 0, 0, 0.5);
+        }
+      }
+      * { box-sizing: border-box; }
+      html { -webkit-text-size-adjust: 100%; }
+      body {
+        margin: 0;
+        background: var(--bg);
+        color: var(--ink);
+        font-family: "Hiragino Kaku Gothic ProN", "Hiragino Sans", "Noto Sans JP", "Yu Gothic UI", "Yu Gothic", sans-serif;
+        touch-action: manipulation;
+        padding-bottom: 132px;
+      }
+
+      /* ---------- 操作エリア（画面のみ） ---------- */
+      .controls {
+        max-width: 900px;
+        margin: 0 auto;
+        padding: 14px 14px 4px;
+      }
+      .controls .row {
+        display: flex;
+        align-items: center;
+        gap: 12px;
+        flex-wrap: wrap;
+        margin-bottom: 10px;
+      }
+      .controls label {
+        font-size: 14px;
+        color: var(--muted);
+        display: inline-flex;
+        align-items: center;
+        gap: 8px;
+      }
+      #monthSelect {
+        font-size: 16px;
+        padding: 8px 10px;
+        border: 1px solid var(--line);
+        border-radius: 8px;
+        background: var(--panel);
+        color: var(--ink);
+      }
+      #nextMonthBtn {
+        font-size: 14px;
+        color: var(--accent);
+        background: none;
+        border: none;
+        text-decoration: underline;
+        padding: 8px 4px;
+        cursor: pointer;
+      }
+      #nameInput {
+        font-size: 16px;
+        padding: 8px 10px;
+        border: 1px solid var(--line);
+        border-radius: 8px;
+        background: var(--panel);
+        color: var(--ink);
+        width: 180px;
+      }
+      .note {
+        font-size: 12.5px;
+        line-height: 1.7;
+        color: var(--muted);
+        margin: 2px 0 10px;
+      }
+
+      /* ---------- 用紙（A4実寸・画面／印刷共通） ---------- */
+      .sheet-viewport {
+        max-width: 900px;
+        margin: 0 auto;
+        overflow: hidden;
+        position: relative;
+      }
+
+      .sheet {
+        width: 210mm;
+        height: 297mm;
+        margin: 0 auto;
+        background: #ffffff;
+        color: #000000;
+        color-scheme: light;
+        padding: 66pt 23mm 0 23mm;
+        box-shadow: 0 2px 18px rgba(20, 30, 28, 0.22);
+        overflow: hidden;
+        flex: none;
+      }
+      .sheet-head {
+        height: 30pt;
+        display: flex;
+        align-items: flex-end;
+        justify-content: space-between;
+      }
+      .head-left { font-size: 11.5pt; white-space: nowrap; padding-bottom: 1pt; }
+      .head-title { font-size: 21pt; font-weight: 700; line-height: 1.15; white-space: nowrap; }
+      .head-right { font-size: 11.5pt; white-space: nowrap; padding-bottom: 1pt; }
+      .head-name {
+        display: inline-block;
+        min-width: 84pt;
+        text-align: center;
+        border-bottom: 1.2pt solid #000;
+        padding: 0 6pt;
+        font-size: 12pt;
+      }
+      table.sheet-table {
+        width: 100%;
+        margin-top: 28.7pt;
+        border-collapse: collapse;
+        table-layout: fixed;
+        border: 2.2pt solid #000;
+      }
+      table.sheet-table th,
+      table.sheet-table td {
+        border: 0.7pt solid #000;
+        padding: 0;
+        text-align: center;
+        vertical-align: middle;
+        font-weight: 400;
+      }
+      table.sheet-table thead th { height: 22.4pt; font-size: 11.5pt; font-weight: 700; }
+      table.sheet-table thead th.th-small { font-size: 9.5pt; }
+      table.sheet-table thead th.th-clean { font-size: 8.6pt; }
+      table.sheet-table tbody td { height: 20pt; font-size: 10.5pt; }
+      table.sheet-table tfoot td { height: 20pt; font-size: 10.5pt; }
+      table.sheet-table tfoot td.total-label { font-weight: 700; }
+      td.cell { position: relative; cursor: pointer; }
+      td.cell .view {
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        width: 100%;
+        height: 100%;
+        padding: 0 1pt;
+        overflow: hidden;
+      }
+      td.cell .txt { display: block; text-align: center; overflow-wrap: anywhere; line-height: 1.15; }
+      td.cell input.edit {
+        display: none;
+        position: absolute;
+        inset: 0;
+        width: 100%;
+        height: 100%;
+        border: none;
+        outline: 2pt solid var(--accent);
+        outline-offset: -2pt;
+        background: #eafaf6;
+        color: #000;
+        /* 16px以上に保ち、Android Chromeのフォーカス時自動ズームを抑止する */
+        font-family: inherit;
+        font-size: 16px;
+        text-align: center;
+        padding: 0 1pt;
+        border-radius: 0;
+      }
+      td.cell.editing .view { visibility: hidden; }
+      td.cell.editing input.edit { display: block; }
+
+      /* ---------- 下部バー（画面のみ） ---------- */
+      .bottom-bar {
+        position: fixed;
+        left: 0; right: 0; bottom: 0;
+        background: var(--panel);
+        border-top: 1px solid var(--line);
+        box-shadow: var(--bar-shadow);
+        padding: 12px 16px calc(12px + env(safe-area-inset-bottom));
+        z-index: 30;
+      }
+      body.editing .bottom-bar { display: none; }
+      #pdfBtn {
+        display: block;
+        width: 100%;
+        max-width: 640px;
+        margin: 0 auto;
+        font-size: 18px;
+        font-weight: 700;
+        padding: 15px 0;
+        border: none;
+        border-radius: 10px;
+        background: var(--accent);
+        color: var(--accent-ink);
+        cursor: pointer;
+      }
+      .bottom-hint {
+        max-width: 640px;
+        margin: 8px auto 0;
+        font-size: 12px;
+        line-height: 1.6;
+        color: var(--muted);
+        text-align: center;
+      }
+      .print-note {
+        max-width: 640px;
+        margin: 8px auto 0;
+        font-size: 13px;
+        line-height: 1.6;
+        color: var(--danger);
+        text-align: center;
+      }
+      .print-note[hidden] { display: none; }
+
+      /* ---------- 編集バー（画面のみ） ---------- */
+      .edit-bar {
+        position: fixed;
+        left: 0; right: 0; bottom: 0;
+        background: var(--panel);
+        border-top: 1px solid var(--line);
+        box-shadow: var(--bar-shadow);
+        padding: 8px 12px calc(8px + env(safe-area-inset-bottom));
+        z-index: 40;
+      }
+      .edit-bar[hidden] { display: none; }
+      .edit-bar-top {
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        gap: 10px;
+      }
+      .edit-status { font-size: 14px; color: var(--muted); }
+      .edit-actions { display: flex; gap: 10px; flex: none; }
+      #clearBtn {
+        font-size: 15px;
+        padding: 9px 16px;
+        border-radius: 999px;
+        border: 1.5px solid var(--danger);
+        background: var(--panel);
+        color: var(--danger);
+        cursor: pointer;
+      }
+      #confirmBtn {
+        font-size: 16px;
+        font-weight: 700;
+        padding: 9px 26px;
+        border-radius: 999px;
+        border: none;
+        background: var(--accent);
+        color: var(--accent-ink);
+        cursor: pointer;
+      }
+      .chips {
+        display: flex;
+        gap: 8px;
+        flex-wrap: wrap;
+        margin-top: 8px;
+      }
+      .chips[hidden] { display: none; }
+      .chip {
+        font-size: 14px;
+        padding: 6px 12px;
+        border-radius: 999px;
+        border: 1px solid var(--line);
+        background: var(--bg);
+        color: var(--ink);
+        cursor: pointer;
+      }
+      .chips-label { font-size: 12px; color: var(--muted); align-self: center; }
+
+      /* ---------- 印刷 ---------- */
+      @page { size: A4 portrait; margin: 0; }
+      @media print {
+        body { padding: 0 !important; background: #ffffff !important; }
+        .no-print { display: none !important; }
+        .sheet-viewport { max-width: none; height: auto !important; overflow: visible !important; margin: 0; }
+        .sheet {
+          zoom: 1 !important;
+          transform: none !important;
+          margin: 0;
+          box-shadow: none;
+          page-break-after: avoid;
+        }
+        td.cell input.edit { display: none !important; }
+        td.cell .view { visibility: visible !important; }
+      }
+    </style>
+  </head>
+  <body>
+    <div class="controls no-print">
+      <div class="row">
+        <label>年月
+          <select id="monthSelect" aria-label="年月を選ぶ"></select>
+        </label>
+        <button id="nextMonthBtn" type="button">次の月を作る</button>
+      </div>
+      <div class="row">
+        <label>氏名
+          <input id="nameInput" type="text" placeholder="自分の名前を入力" autocomplete="name" />
+        </label>
+      </div>
+      <p class="note">入力はこの端末の中だけに自動で保存されます（サーバーには送られません）。月末は下の「PDFにする」を押し、印刷画面で「PDFとして保存」を選んでください。ファイル名は自動で「<span id="noteFileName">出面_2026年11月.pdf</span>」になります。コンビニでは、保存したPDFを選んで印刷してください。</p>
+    </div>
+
+    <div class="sheet-viewport" id="sheetViewport">
+      <div class="sheet" id="sheet">
+        <div class="sheet-head">
+          <div class="head-left" id="headYM"></div>
+          <div class="head-title">出　面　表</div>
+          <div class="head-right">氏名　<span class="head-name" id="headName"></span></div>
+        </div>
+        <table class="sheet-table" id="sheetTable">
+          <colgroup>
+            <col style="width:5.5394%" />
+            <col style="width:6.2682%" />
+            <col style="width:14.7230%" />
+            <col style="width:14.7230%" />
+            <col style="width:14.7230%" />
+            <col style="width:14.7230%" />
+            <col style="width:6.2682%" />
+            <col style="width:6.2682%" />
+            <col style="width:16.7638%" />
+          </colgroup>
+          <thead>
+            <tr>
+              <th class="th-small">日付</th>
+              <th class="th-small">曜日</th>
+              <th>昼</th>
+              <th>夜</th>
+              <th class="th-clean">クリーニング昼</th>
+              <th class="th-clean">クリーニング夜</th>
+              <th>残</th>
+              <th>早</th>
+              <th>最寄り駅</th>
+            </tr>
+          </thead>
+          <tbody id="sheetBody"></tbody>
+          <tfoot>
+            <tr>
+              <td class="total-label" colspan="2">合計</td>
+              <td id="tot-hiru"></td>
+              <td id="tot-yoru"></td>
+              <td id="tot-ch"></td>
+              <td id="tot-cy"></td>
+              <td id="tot-zan"></td>
+              <td id="tot-haya"></td>
+              <td id="tot-eki"></td>
+            </tr>
+          </tfoot>
+        </table>
+      </div>
+    </div>
+
+    <div class="bottom-bar no-print" id="bottomBar">
+      <button id="pdfBtn" type="button">PDFにする</button>
+      <p class="print-note" id="printNote" hidden>印刷画面が開きませんでした。ブラウザのメニュー（︙ → 共有 → 印刷）からもPDF保存できます。</p>
+      <p class="bottom-hint">印刷画面が開いたら「PDFとして保存」を選んでください（ファイル名は自動で「<span id="hintFileName">出面_2026年11月.pdf</span>」になります）。</p>
+    </div>
+
+    <div class="edit-bar no-print" id="editBar" hidden>
+      <div class="edit-bar-top">
+        <span class="edit-status" id="editStatus"></span>
+        <span class="edit-actions">
+          <button id="clearBtn" type="button">消す</button>
+          <button id="confirmBtn" type="button">確定</button>
+        </span>
+      </div>
+      <div class="chips" id="chips" hidden></div>
+    </div>
+
+    <script>
+      (function () {
+        'use strict';
+
+        var COLS = [
+          { key: 'hiru', label: '昼', type: 'site' },
+          { key: 'yoru', label: '夜', type: 'site' },
+          { key: 'ch', label: 'クリーニング昼', type: 'site' },
+          { key: 'cy', label: 'クリーニング夜', type: 'site' },
+          { key: 'zan', label: '残', type: 'num' },
+          { key: 'haya', label: '早', type: 'num' },
+          { key: 'eki', label: '最寄り駅', type: 'text' }
+        ];
+        var DOW = ['日', '月', '火', '水', '木', '金', '土'];
+        var LS_KEY = 'demehyo.web.v1';
+        var SHEET_W_PX = 210 * 96 / 25.4; /* 210mm = 793.70px */
+
+        var sheetViewport = document.getElementById('sheetViewport');
+        var sheet = document.getElementById('sheet');
+        var sheetBody = document.getElementById('sheetBody');
+        var headYM = document.getElementById('headYM');
+        var headName = document.getElementById('headName');
+        var monthSelect = document.getElementById('monthSelect');
+        var nameInput = document.getElementById('nameInput');
+        var editBar = document.getElementById('editBar');
+        var editStatus = document.getElementById('editStatus');
+        var chipsBox = document.getElementById('chips');
+
+        function load() {
+          try {
+            var raw = localStorage.getItem(LS_KEY);
+            if (raw) {
+              var s = JSON.parse(raw);
+              if (s && typeof s === 'object') {
+                if (!s.months) s.months = {};
+                if (!s.sites) s.sites = [];
+                if (typeof s.name !== 'string') s.name = '';
+                return s;
+              }
+            }
+          } catch (e) { /* fall through */ }
+          return { months: {}, name: '', sites: [] };
+        }
+        function save() {
+          try { localStorage.setItem(LS_KEY, JSON.stringify(store)); } catch (e) { /* storage unavailable */ }
+        }
+        var store = load();
+
+        function ymKey(y, m) { return y + '-' + (m < 10 ? '0' + m : '' + m); }
+        function parseKey(key) { var p = key.split('-'); return { y: +p[0], m: +p[1] }; }
+        function daysInMonth(y, m) { return new Date(y, m, 0).getDate(); }
+        function emptyDay() { return { hiru: '', yoru: '', ch: '', cy: '', zan: '', haya: '', eki: '' }; }
+        function ensureMonth(key) {
+          if (!store.months[key]) store.months[key] = { days: {} };
+          return store.months[key];
+        }
+        function dayData(key, d) {
+          var mo = ensureMonth(key);
+          if (!mo.days[d]) mo.days[d] = emptyDay();
+          return mo.days[d];
+        }
+
+        var now = new Date();
+        var curKey = ymKey(now.getFullYear(), now.getMonth() + 1);
+        ensureMonth(curKey);
+
+        var editing = null; /* { input, td, day, col } */
+        var fitZoom = 1;
+
+        /* ---------------- 月セレクタ ---------------- */
+        function buildMonthOptions() {
+          var keys = Object.keys(store.months);
+          if (keys.indexOf(curKey) < 0) keys.push(curKey);
+          keys.sort();
+          monthSelect.innerHTML = '';
+          keys.forEach(function (k) {
+            var p = parseKey(k);
+            var opt = document.createElement('option');
+            opt.value = k;
+            opt.textContent = p.y + '年 ' + p.m + '月';
+            monthSelect.appendChild(opt);
+          });
+          monthSelect.value = curKey;
+        }
+
+        /* ---------------- 表の描画 ---------------- */
+        function fitText(td) {
+          var view = td.querySelector('.view');
+          var txt = td.querySelector('.txt');
+          if (!view || !txt) return;
+          var size = 10.5;
+          txt.style.fontSize = size + 'pt';
+          var guard = 0;
+          while (guard < 14 && size > 5.5 &&
+                 (txt.scrollHeight > view.clientHeight + 1 || txt.scrollWidth > view.clientWidth + 1)) {
+            size -= 0.5;
+            txt.style.fontSize = size + 'pt';
+            guard++;
+          }
+        }
+
+        function renderMonth() {
+          var p = parseKey(curKey);
+          var n = daysInMonth(p.y, p.m);
+          headYM.textContent = p.y + '年　' + p.m + '月';
+          headName.textContent = store.name || '';
+          var fname = '出面_' + p.y + '年' + p.m + '月.pdf';
+          document.getElementById('noteFileName').textContent = fname;
+          document.getElementById('hintFileName').textContent = fname;
+
+          sheetBody.innerHTML = '';
+          for (var d = 1; d <= n; d++) {
+            var dow = DOW[new Date(p.y, p.m - 1, d).getDay()];
+            var data = dayData(curKey, d);
+            var tr = document.createElement('tr');
+
+            var tdDate = document.createElement('td');
+            tdDate.textContent = d;
+            tr.appendChild(tdDate);
+            var tdDow = document.createElement('td');
+            tdDow.textContent = dow;
+            tr.appendChild(tdDow);
+
+            COLS.forEach(function (col) {
+              var td = document.createElement('td');
+              td.className = 'cell';
+              td.setAttribute('data-day', d);
+              td.setAttribute('data-col', col.key);
+
+              var view = document.createElement('span');
+              view.className = 'view';
+              var txt = document.createElement('span');
+              txt.className = 'txt';
+              txt.textContent = data[col.key] || '';
+              view.appendChild(txt);
+              td.appendChild(view);
+
+              var input = document.createElement('input');
+              input.className = 'edit';
+              input.type = 'text';
+              input.value = data[col.key] || '';
+              input.tabIndex = -1;
+              input.setAttribute('autocomplete', 'off');
+              if (col.type === 'num') input.setAttribute('inputmode', 'decimal');
+              input.setAttribute('aria-label', d + '日 ' + col.label);
+              td.appendChild(input);
+
+              tr.appendChild(td);
+            });
+            sheetBody.appendChild(tr);
+          }
+          var cells = sheetBody.querySelectorAll('td.cell');
+          for (var i = 0; i < cells.length; i++) fitText(cells[i]);
+          updateTotals();
+        }
+
+        function parseHours(s) {
+          if (!s) return 0;
+          var t = String(s).replace(/[０-９]/g, function (c) {
+            return String.fromCharCode(c.charCodeAt(0) - 0xFEE0);
+          });
+          var m = t.match(/(\d+(?:\.\d+)?)/);
+          return m ? parseFloat(m[1]) : 0;
+        }
+        function fmtNum(n) {
+          if (!n) return '';
+          return String(Math.round(n * 100) / 100);
+        }
+        function updateTotals() {
+          var p = parseKey(curKey);
+          var n = daysInMonth(p.y, p.m);
+          var counts = { hiru: 0, yoru: 0, ch: 0, cy: 0, eki: 0 };
+          var sums = { zan: 0, haya: 0 };
+          for (var d = 1; d <= n; d++) {
+            var data = dayData(curKey, d);
+            ['hiru', 'yoru', 'ch', 'cy', 'eki'].forEach(function (k) {
+              if (String(data[k] || '').trim() !== '') counts[k]++;
+            });
+            sums.zan += parseHours(data.zan);
+            sums.haya += parseHours(data.haya);
+          }
+          document.getElementById('tot-hiru').textContent = counts.hiru ? counts.hiru : '';
+          document.getElementById('tot-yoru').textContent = counts.yoru ? counts.yoru : '';
+          document.getElementById('tot-ch').textContent = counts.ch ? counts.ch : '';
+          document.getElementById('tot-cy').textContent = counts.cy ? counts.cy : '';
+          document.getElementById('tot-eki').textContent = counts.eki ? counts.eki : '';
+          document.getElementById('tot-zan').textContent = fmtNum(sums.zan);
+          document.getElementById('tot-haya').textContent = fmtNum(sums.haya);
+        }
+
+        /* ---------------- 現場名の候補 ---------------- */
+        function pushSite(name) {
+          var i = store.sites.indexOf(name);
+          if (i >= 0) store.sites.splice(i, 1);
+          store.sites.unshift(name);
+          if (store.sites.length > 24) store.sites.length = 24;
+        }
+        function buildChips(col, currentVal) {
+          chipsBox.innerHTML = '';
+          if (col.type !== 'site') { chipsBox.hidden = true; return; }
+          var list = store.sites.filter(function (s) { return s !== currentVal; }).slice(0, 12);
+          if (!list.length) { chipsBox.hidden = true; return; }
+          var label = document.createElement('span');
+          label.className = 'chips-label';
+          label.textContent = '過去の現場名：';
+          chipsBox.appendChild(label);
+          list.forEach(function (s) {
+            var b = document.createElement('button');
+            b.type = 'button';
+            b.className = 'chip';
+            b.textContent = s;
+            b.addEventListener('pointerdown', function (e) { e.preventDefault(); });
+            b.addEventListener('click', function () {
+              if (!editing) return;
+              editing.input.value = s;
+              editing.input.focus();
+              var len = editing.input.value.length;
+              try { editing.input.setSelectionRange(len, len); } catch (e) { /* noop */ }
+            });
+            chipsBox.appendChild(b);
+          });
+          chipsBox.hidden = false;
+        }
+
+        /* ---------------- 表示倍率（常に全体幅フィットの一定倍率） ----------------
+           編集開始・終了で倍率や位置は一切変えない。編集中セルは枠と色で示す。 */
+        function computeFit() {
+          var w = sheetViewport.clientWidth;
+          fitZoom = Math.min(1, w / SHEET_W_PX);
+          sheet.style.zoom = fitZoom;
+        }
+
+        /* ---------------- 編集 ---------------- */
+        function colOf(key) {
+          for (var i = 0; i < COLS.length; i++) if (COLS[i].key === key) return COLS[i];
+          return null;
+        }
+        function startEdit(td) {
+          if (editing && editing.td === td) return;
+          if (editing) commitEdit();
+          var day = +td.getAttribute('data-day');
+          var col = colOf(td.getAttribute('data-col'));
+          var input = td.querySelector('input.edit');
+          if (!col || !input) return;
+          editing = { input: input, td: td, day: day, col: col };
+          td.classList.add('editing');
+          editStatus.textContent = day + '日 ' + col.label + 'を編集中';
+          buildChips(col, input.value);
+          editBar.hidden = false;
+          document.body.classList.add('editing');
+          input.focus({ preventScroll: true });
+          input.select();
+          placeEditBar();
+        }
+        function commitEdit() {
+          if (!editing) return;
+          var e = editing;
+          editing = null;
+          var val = e.input.value;
+          dayData(curKey, e.day)[e.col.key] = val;
+          if (e.col.type === 'site' && val.trim() !== '') pushSite(val.trim());
+          save();
+          var txt = e.td.querySelector('.txt');
+          if (txt) txt.textContent = val;
+          fitText(e.td);
+          updateTotals();
+          e.td.classList.remove('editing');
+          editBar.hidden = true;
+          chipsBox.hidden = true;
+          document.body.classList.remove('editing');
+        }
+
+        sheetBody.addEventListener('click', function (ev) {
+          var td = ev.target.closest ? ev.target.closest('td.cell') : null;
+          if (td && sheetBody.contains(td)) startEdit(td);
+        });
+        sheetBody.addEventListener('focusout', function (ev) {
+          if (editing && ev.target === editing.input) commitEdit();
+        });
+        sheetBody.addEventListener('keydown', function (ev) {
+          if (editing && ev.target === editing.input && ev.key === 'Enter') {
+            ev.preventDefault();
+            editing.input.blur();
+          }
+        });
+
+        var clearBtn = document.getElementById('clearBtn');
+        var confirmBtn = document.getElementById('confirmBtn');
+        clearBtn.addEventListener('pointerdown', function (e) { e.preventDefault(); });
+        clearBtn.addEventListener('click', function () {
+          if (!editing) return;
+          editing.input.value = '';
+          editing.input.focus();
+        });
+        confirmBtn.addEventListener('pointerdown', function (e) { e.preventDefault(); });
+        confirmBtn.addEventListener('click', function () {
+          if (!editing) return;
+          var input = editing.input;
+          commitEdit();
+          input.blur();
+        });
+
+        /* 編集バーをキーボード直上に密着させる */
+        function placeEditBar() {
+          if (editBar.hidden) return;
+          var vv = window.visualViewport;
+          var offset = 0;
+          if (vv) offset = Math.max(0, window.innerHeight - vv.height - vv.offsetTop);
+          editBar.style.bottom = offset + 'px';
+        }
+        if (window.visualViewport) {
+          /* キーボード開閉では編集バーの位置だけを追従させ、表の倍率・位置・
+             ビューポート高さには一切触らない（スクロール位置を安定させる） */
+          window.visualViewport.addEventListener('resize', placeEditBar);
+          window.visualViewport.addEventListener('scroll', placeEditBar);
+        }
+
+        /* ---------------- 月切替・氏名 ---------------- */
+        monthSelect.addEventListener('change', function () {
+          if (editing) commitEdit();
+          curKey = monthSelect.value;
+          ensureMonth(curKey);
+          renderMonth();
+          computeFit();
+          window.scrollTo(0, 0);
+        });
+        document.getElementById('nextMonthBtn').addEventListener('click', function () {
+          if (editing) commitEdit();
+          var p = parseKey(curKey);
+          var m = p.m + 1, y = p.y;
+          if (m > 12) { m = 1; y++; }
+          curKey = ymKey(y, m);
+          ensureMonth(curKey);
+          save();
+          buildMonthOptions();
+          renderMonth();
+          computeFit();
+          window.scrollTo(0, 0);
+        });
+        nameInput.addEventListener('input', function () {
+          store.name = nameInput.value;
+          headName.textContent = store.name;
+          save();
+        });
+
+        /* ---------------- PDF（印刷） ---------------- */
+        var originalTitle = document.title;
+        var printNote = document.getElementById('printNote');
+        var printSeen = false;
+        function fileBase() {
+          var p = parseKey(curKey);
+          return '出面_' + p.y + '年' + p.m + '月';
+        }
+        document.getElementById('pdfBtn').addEventListener('click', function () {
+          if (editing) { var inp = editing.input; commitEdit(); inp.blur(); }
+          document.title = fileBase();
+          printNote.hidden = true;
+          printSeen = false;
+          window.print();
+          /* アプリ内表示など window.print() が効かない環境では beforeprint が
+             発火しない。その場合は無反応で終わらせず、Chromeで開く案内を出す */
+          setTimeout(function () {
+            if (!printSeen) printNote.hidden = false;
+          }, 900);
+        });
+        window.addEventListener('beforeprint', function () {
+          printSeen = true;
+          printNote.hidden = true;
+          if (editing) commitEdit();
+          document.title = fileBase();
+        });
+        window.addEventListener('afterprint', function () {
+          document.title = originalTitle;
+        });
+
+        /* ---------------- 初期化 ---------------- */
+        nameInput.value = store.name || '';
+        buildMonthOptions();
+        renderMonth();
+        computeFit();
+        var resizeTimer = null;
+        window.addEventListener('resize', function () {
+          if (resizeTimer) clearTimeout(resizeTimer);
+          resizeTimer = setTimeout(computeFit, 120);
+        });
+      })();
+    </script>
+  </body>
+</html>
