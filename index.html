@@ -39,7 +39,7 @@
         color: var(--ink);
         font-family: "Hiragino Kaku Gothic ProN", "Hiragino Sans", "Noto Sans JP", "Yu Gothic UI", "Yu Gothic", sans-serif;
         touch-action: manipulation;
-        padding-bottom: 250px;
+        padding-bottom: 292px;
       }
 
       /* ---------- 操作エリア（画面のみ） ---------- */
@@ -210,9 +210,14 @@
         color: var(--accent-ink);
         cursor: pointer;
       }
+      .sub-actions {
+        display: flex;
+        justify-content: center;
+        gap: 8px;
+      }
       .print-sub {
         display: block;
-        margin: 8px auto 0;
+        margin: 8px 0 0;
         background: none;
         border: none;
         color: var(--muted);
@@ -382,7 +387,10 @@
       <button id="pdfBtn" type="button">PDFにする</button>
       <p class="print-note" id="printNote" hidden></p>
       <p class="bottom-hint">「PDFにする」を押すとPDFが作られます（ファイル名は自動で「<span id="hintFileName">出面_2026年11月.pdf</span>」）。iPhoneでは保存先を選ぶ画面が開き、Androidではダウンロードに保存されます（ファイルを開くと開くアプリを選べます）。</p>
-      <button id="printBtn" type="button" class="print-sub">印刷から保存する</button>
+      <div class="sub-actions">
+        <button id="shareBtn" type="button" class="print-sub">共有する</button>
+        <button id="printBtn" type="button" class="print-sub">印刷から保存する</button>
+      </div>
     </div>
 
     <div class="edit-bar no-print" id="editBar" hidden>
@@ -989,6 +997,33 @@
             pdfBtn.disabled = false;
             pdfBtn.textContent = oldLabel;
             showNote('PDFの作成に失敗しました。下の「印刷から保存する」を試してください。');
+          });
+        });
+
+        /* 共有する（保存・送信先を選ぶシートを別途用意） */
+        var shareBtn = document.getElementById('shareBtn');
+        shareBtn.addEventListener('click', function () {
+          if (editing) { var inp = editing.input; commitEdit(); inp.blur(); }
+          printNote.hidden = true;
+          var oldLabel = shareBtn.textContent;
+          shareBtn.disabled = true;
+          shareBtn.textContent = 'PDFを作成中…';
+          makePdfFile().then(function (file) {
+            shareBtn.disabled = false;
+            shareBtn.textContent = oldLabel;
+            if (navigator.canShare && navigator.canShare({ files: [file] })) {
+              navigator.share({ files: [file] }).catch(function (err) {
+                if (err && err.name !== 'AbortError') {
+                  showNote('共有を開けませんでした。「PDFにする」から保存してください。');
+                }
+              });
+            } else {
+              showNote('この環境では共有できません。「PDFにする」から保存してください。');
+            }
+          }).catch(function () {
+            shareBtn.disabled = false;
+            shareBtn.textContent = oldLabel;
+            showNote('PDFの作成に失敗しました。');
           });
         });
 
