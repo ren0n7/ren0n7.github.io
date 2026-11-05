@@ -1,9 +1,8 @@
 /* 出面表ツール用 Service Worker
    オンライン時は常に最新を取りに行き（network-first）、
    オフライン時だけキャッシュにフォールバックする */
-var CACHE = 'demehyo-v1';
-var CORE = ['./', './index.html', './manifest.json',
-  './icon-192.png', './icon-512.png', './apple-touch-icon.png'];
+var CACHE = 'demehyo-v2';
+var CORE = ['./', './index.html', './manifest.json', './icon.svg'];
 
 self.addEventListener('install', function (e) {
   e.waitUntil(
