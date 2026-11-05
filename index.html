@@ -326,7 +326,7 @@
           <input id="nameInput" type="text" placeholder="自分の名前を入力" autocomplete="name" />
         </label>
       </div>
-      <p class="note">入力はこの端末の中だけに自動で保存されます（サーバーには送られません）。月末は下の「PDFにする」を押すとPDFが開きます。開いた先やダウンロードから、ドライブなどに保存できます。ファイル名は自動で「<span id="noteFileName">出面_2026年11月.pdf</span>」になります。コンビニでは、保存したPDFを選んで印刷してください。</p>
+      <p class="note">入力はこの端末の中だけに自動で保存されます（サーバーには送られません）。月末は下の「PDFにする」を押すと、PDFがダウンロードに保存されます。保存したファイルを開くと、開くアプリを選べます。ファイル名は自動で「<span id="noteFileName">出面_2026年11月.pdf</span>」になります。コンビニでは、保存したPDFを選んで印刷してください。</p>
     </div>
 
     <div class="sheet-viewport" id="sheetViewport">
@@ -381,7 +381,7 @@
     <div class="bottom-bar no-print" id="bottomBar">
       <button id="pdfBtn" type="button">PDFにする</button>
       <p class="print-note" id="printNote" hidden></p>
-      <p class="bottom-hint">「PDFにする」を押すとPDFが開きます。開いた先やダウンロードから、ドライブなどに保存できます。ファイル名は自動で「<span id="hintFileName">出面_2026年11月.pdf</span>」になります。</p>
+      <p class="bottom-hint">「PDFにする」を押すと、PDFがダウンロードに保存されます（ファイル名は自動で「<span id="hintFileName">出面_2026年11月.pdf</span>」）。保存したファイルを開くと、開くアプリを選べます。</p>
       <button id="printBtn" type="button" class="print-sub">印刷から保存する</button>
     </div>
 
@@ -964,32 +964,17 @@
         pdfBtn.addEventListener('click', function () {
           if (editing) { var inp = editing.input; commitEdit(); inp.blur(); }
           printNote.hidden = true;
-          /* PDFを開くタブは、タップ直後（生成前）に確保しておく。
-             生成を待ってから開くとポップアップ扱いで止められるため */
-          var win = null;
-          try { win = window.open('', '_blank'); } catch (e) { win = null; }
           var oldLabel = pdfBtn.textContent;
           pdfBtn.disabled = true;
           pdfBtn.textContent = 'PDFを作成中…';
           makePdfFile().then(function (file) {
             pdfBtn.disabled = false;
             pdfBtn.textContent = oldLabel;
-            var url = URL.createObjectURL(file);
-            var opened = false;
-            if (win) {
-              try { win.location.href = url; opened = true; } catch (e) { opened = false; }
-            }
-            if (opened) {
-              setTimeout(function () { URL.revokeObjectURL(url); }, 60000);
-            } else {
-              URL.revokeObjectURL(url);
-              downloadFile(file);
-              showNote('ダウンロードに保存しました。ファイルを開くと、開くアプリを選べます。');
-            }
+            downloadFile(file);
+            showNote('ダウンロードに「' + file.name + '」を保存しました。ダウンロードの通知かファイルアプリから開くと、開くアプリを選べます。');
           }).catch(function () {
             pdfBtn.disabled = false;
             pdfBtn.textContent = oldLabel;
-            if (win) { try { win.close(); } catch (e) { /* ignore */ } }
             showNote('PDFの作成に失敗しました。下の「印刷から保存する」を試してください。');
           });
         });
