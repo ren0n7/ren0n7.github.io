@@ -210,6 +210,17 @@
         color: var(--accent-ink);
         cursor: pointer;
       }
+      .print-sub {
+        display: block;
+        margin: 8px auto 0;
+        background: none;
+        border: none;
+        color: var(--muted);
+        font-size: 13px;
+        text-decoration: underline;
+        cursor: pointer;
+        padding: 6px 12px;
+      }
       .bottom-hint {
         max-width: 640px;
         margin: 8px auto 0;
@@ -315,7 +326,7 @@
           <input id="nameInput" type="text" placeholder="自分の名前を入力" autocomplete="name" />
         </label>
       </div>
-      <p class="note">入力はこの端末の中だけに自動で保存されます（サーバーには送られません）。月末は下の「PDFにする」を押し、印刷画面で「PDFとして保存」を選んでください。ファイル名は自動で「<span id="noteFileName">出面_2026年11月.pdf</span>」になります。コンビニでは、保存したPDFを選んで印刷してください。</p>
+      <p class="note">入力はこの端末の中だけに自動で保存されます（サーバーには送られません）。月末は下の「PDFにする」を押すと、保存先のアプリ（Googleドライブなど）を選んで保存できます。ファイル名は自動で「<span id="noteFileName">出面_2026年11月.pdf</span>」になります。コンビニでは、保存したPDFを選んで印刷してください。</p>
     </div>
 
     <div class="sheet-viewport" id="sheetViewport">
@@ -369,8 +380,9 @@
 
     <div class="bottom-bar no-print" id="bottomBar">
       <button id="pdfBtn" type="button">PDFにする</button>
-      <p class="print-note" id="printNote" hidden>印刷画面が開きませんでした。ブラウザのメニュー（︙ → 共有 → 印刷）からもPDF保存できます。</p>
-      <p class="bottom-hint">印刷画面が開いたら「PDFとして保存」を選んでください（ファイル名は自動で「<span id="hintFileName">出面_2026年11月.pdf</span>」になります）。</p>
+      <p class="print-note" id="printNote" hidden></p>
+      <p class="bottom-hint">「PDFにする」を押すと、保存先のアプリ（Googleドライブなど）を選べます。ファイル名は自動で「<span id="hintFileName">出面_2026年11月.pdf</span>」になります。</p>
+      <button id="printBtn" type="button" class="print-sub">印刷から保存する</button>
     </div>
 
     <div class="edit-bar no-print" id="editBar" hidden>
@@ -729,7 +741,7 @@
           save();
         });
 
-        /* ---------------- PDF（印刷） ---------------- */
+        /* ---------------- PDF ---------------- */
         var originalTitle = document.title;
         var printNote = document.getElementById('printNote');
         var printSeen = false;
@@ -737,16 +749,22 @@
           var p = parseKey(curKey);
           return '出面_' + p.y + '年' + p.m + '月';
         }
-        document.getElementById('pdfBtn').addEventListener('click', function () {
+        function showNote(msg) {
+          printNote.textContent = msg;
+          printNote.hidden = false;
+        }
+
+        /* 印刷から保存（従来方式） */
+        document.getElementById('printBtn').addEventListener('click', function () {
           if (editing) { var inp = editing.input; commitEdit(); inp.blur(); }
           document.title = fileBase();
           printNote.hidden = true;
           printSeen = false;
           window.print();
-          /* アプリ内表示など window.print() が効かない環境では beforeprint が
-             発火しない。その場合は無反応で終わらせず、Chromeで開く案内を出す */
+          /* window.print() が効かない環境では beforeprint が発火しない。
+             その場合は無反応で終わらせず案内を出す */
           setTimeout(function () {
-            if (!printSeen) printNote.hidden = false;
+            if (!printSeen) showNote('印刷画面が開きませんでした。このページをChromeで開いて試してください。');
           }, 900);
         });
         window.addEventListener('beforeprint', function () {
@@ -757,6 +775,214 @@
         });
         window.addEventListener('afterprint', function () {
           document.title = originalTitle;
+        });
+
+        /* 表をキャンバスに描いてPDFファイル化し、保存先アプリを選べる共有を開く */
+        var PDF_W = 595.28, PDF_H = 841.89;
+        var COLR = [38, 43, 101, 101, 101, 101, 43, 43, 115];
+        var HEAD_LABELS = ['日付', '曜日', '昼', '夜', 'クリーニング昼', 'クリーニング夜', '残', '早', '最寄り駅'];
+
+        function cellLines(ctx, text, maxW) {
+          var chars = String(text).split('');
+          var lines = [], cur = '';
+          for (var i = 0; i < chars.length; i++) {
+            var t = cur + chars[i];
+            if (cur && ctx.measureText(t).width > maxW) { lines.push(cur); cur = chars[i]; }
+            else cur = t;
+          }
+          if (cur) lines.push(cur);
+          return lines.length ? lines : [''];
+        }
+        function drawCellText(ctx, text, cx, cy, maxW, basePt, S) {
+          if (!text) return;
+          var sizes = [basePt, basePt - 1, basePt - 2, 7.5];
+          for (var si = 0; si < sizes.length; si++) {
+            var pt = sizes[si];
+            ctx.font = (pt * S) + 'px sans-serif';
+            var lines = cellLines(ctx, text, maxW);
+            if (lines.length <= 2 || si === sizes.length - 1) {
+              if (lines.length > 2) lines = [lines[0], lines.slice(1).join('')];
+              var lh = pt * 1.18 * S;
+              var y0 = cy - lh * (lines.length - 1) / 2;
+              for (var li = 0; li < lines.length; li++) ctx.fillText(lines[li], cx, y0 + lh * li);
+              return;
+            }
+          }
+        }
+
+        function drawSheetToCanvas() {
+          var S = 300 / 72;
+          var cv = document.createElement('canvas');
+          cv.width = Math.round(PDF_W * S);
+          cv.height = Math.round(PDF_H * S);
+          var ctx = cv.getContext('2d');
+          ctx.fillStyle = '#ffffff';
+          ctx.fillRect(0, 0, cv.width, cv.height);
+          ctx.fillStyle = '#000000';
+          ctx.strokeStyle = '#000000';
+
+          var p = parseKey(curKey);
+          var n = daysInMonth(p.y, p.m);
+          var left = 23 * 72 / 25.4, right = PDF_W - left;
+          function X(pt) { return pt * S; }
+
+          /* ヘッダー */
+          var baseY = 93.5;
+          ctx.textAlign = 'left';
+          ctx.textBaseline = 'alphabetic';
+          ctx.font = X(11.5) + 'px sans-serif';
+          ctx.fillText(p.y + '年　' + p.m + '月', X(left), X(baseY));
+          ctx.font = 'bold ' + X(21) + 'px sans-serif';
+          ctx.textAlign = 'center';
+          ctx.fillText('出　面　表', X(PDF_W / 2), X(baseY));
+          var name = store.name || '';
+          ctx.font = X(12) + 'px sans-serif';
+          var nameW = Math.max(84, ctx.measureText(name).width / S + 12);
+          ctx.font = X(11.5) + 'px sans-serif';
+          var labelW = ctx.measureText('氏名').width / S;
+          var nameX1 = right - nameW;
+          var labelX = nameX1 - 11.5 - labelW;
+          ctx.textAlign = 'left';
+          ctx.fillText('氏名', X(labelX), X(baseY));
+          ctx.font = X(12) + 'px sans-serif';
+          ctx.textAlign = 'center';
+          if (name) ctx.fillText(name, X(nameX1 + nameW / 2), X(baseY));
+          ctx.lineWidth = X(1.2);
+          ctx.beginPath();
+          ctx.moveTo(X(nameX1), X(95.5));
+          ctx.lineTo(X(right), X(95.5));
+          ctx.stroke();
+
+          /* 表の罫線 */
+          var tableW = right - left;
+          var colX = [left], acc = 0;
+          for (var ci = 0; ci < 9; ci++) { acc += COLR[ci]; colX.push(left + tableW * acc / 686); }
+          var top = 124.7, headH = 22.4, rowH = 20;
+          var bottom = top + headH + rowH * (n + 1);
+          ctx.lineWidth = X(0.7);
+          for (var vx = 1; vx < 9; vx++) {
+            ctx.beginPath(); ctx.moveTo(X(colX[vx]), X(top)); ctx.lineTo(X(colX[vx]), X(bottom)); ctx.stroke();
+          }
+          for (var ry = 0; ry <= n + 2; ry++) {
+            var yy = ry === 0 ? top : top + headH + rowH * (ry - 1);
+            ctx.beginPath(); ctx.moveTo(X(left), X(yy)); ctx.lineTo(X(right), X(yy)); ctx.stroke();
+          }
+          ctx.lineWidth = X(2.2);
+          ctx.strokeRect(X(left), X(top), X(tableW), X(bottom - top));
+
+          /* 見出し */
+          ctx.textBaseline = 'middle';
+          ctx.textAlign = 'center';
+          for (var h = 0; h < 9; h++) {
+            var hpt = (h === 4 || h === 5) ? 8.6 : (h < 2 ? 9.5 : 11.5);
+            ctx.font = 'bold ' + X(hpt) + 'px sans-serif';
+            ctx.fillText(HEAD_LABELS[h], X((colX[h] + colX[h + 1]) / 2), X(top + headH / 2));
+          }
+          /* 日ごとの行と合計 */
+          var counts = { hiru: 0, yoru: 0, ch: 0, cy: 0, eki: 0 };
+          var sums = { zan: 0, haya: 0 };
+          var keys = ['hiru', 'yoru', 'ch', 'cy', 'zan', 'haya', 'eki'];
+          ctx.font = X(10.5) + 'px sans-serif';
+          for (var d = 1; d <= n; d++) {
+            var data = dayData(curKey, d);
+            var cy2 = top + headH + rowH * (d - 1) + rowH / 2;
+            ctx.fillText(String(d), X((colX[0] + colX[1]) / 2), X(cy2));
+            ctx.fillText(DOW[new Date(p.y, p.m - 1, d).getDay()], X((colX[1] + colX[2]) / 2), X(cy2));
+            for (var k = 0; k < keys.length; k++) {
+              var v = String(data[keys[k]] || '');
+              if (v) drawCellText(ctx, v, X((colX[k + 2] + colX[k + 3]) / 2), X(cy2), X(colX[k + 3] - colX[k + 2] - 2), 10.5, S);
+            }
+            ['hiru', 'yoru', 'ch', 'cy', 'eki'].forEach(function (kk) {
+              if (String(data[kk] || '').trim() !== '') counts[kk]++;
+            });
+            sums.zan += parseHours(data.zan);
+            sums.haya += parseHours(data.haya);
+          }
+          var ty = top + headH + rowH * n + rowH / 2;
+          ctx.font = 'bold ' + X(10.5) + 'px sans-serif';
+          ctx.fillText('合計', X((colX[0] + colX[2]) / 2), X(ty));
+          ctx.font = X(10.5) + 'px sans-serif';
+          var totVals = [counts.hiru || '', counts.yoru || '', counts.ch || '', counts.cy || '', fmtNum(sums.zan), fmtNum(sums.haya), counts.eki || ''];
+          for (var t = 0; t < totVals.length; t++) {
+            if (totVals[t] !== '') ctx.fillText(String(totVals[t]), X((colX[t + 2] + colX[t + 3]) / 2), X(ty));
+          }
+          return cv;
+        }
+
+        function jpegToPdfBlob(jpegBuf, pxW, pxH) {
+          var enc = new TextEncoder();
+          var chunks = [];
+          function addStr(s) { chunks.push(enc.encode(s)); }
+          function totalLen() { var t = 0; for (var i = 0; i < chunks.length; i++) t += chunks[i].length; return t; }
+          var offs = [];
+          function obj(num, body) { offs[num] = totalLen(); addStr(num + ' 0 obj\n' + body + '\nendobj\n'); }
+          addStr('%PDF-1.4\n');
+          obj(1, '<< /Type /Catalog /Pages 2 0 R >>');
+          obj(2, '<< /Type /Pages /Kids [3 0 R] /Count 1 >>');
+          obj(3, '<< /Type /Page /Parent 2 0 R /MediaBox [0 0 ' + PDF_W + ' ' + PDF_H + '] /Resources << /XObject << /Im1 5 0 R >> >> /Contents 4 0 R >>');
+          var content = 'q\n' + PDF_W + ' 0 0 ' + PDF_H + ' 0 0 cm\n/Im1 Do\nQ\n';
+          obj(4, '<< /Length ' + content.length + ' >>\nstream\n' + content + 'endstream');
+          offs[5] = totalLen();
+          addStr('5 0 obj\n<< /Type /XObject /Subtype /Image /Width ' + pxW + ' /Height ' + pxH + ' /ColorSpace /DeviceRGB /BitsPerComponent 8 /Filter /DCTDecode /Length ' + jpegBuf.byteLength + ' >>\nstream\n');
+          chunks.push(new Uint8Array(jpegBuf));
+          addStr('\nendstream\nendobj\n');
+          var xrefPos = totalLen();
+          var xref = 'xref\n0 6\n0000000000 65535 f \n';
+          for (var i = 1; i <= 5; i++) {
+            var o = String(offs[i]);
+            while (o.length < 10) o = '0' + o;
+            xref += o + ' 00000 n \n';
+          }
+          addStr(xref + 'trailer\n<< /Size 6 /Root 1 0 R >>\nstartxref\n' + xrefPos + '\n%%EOF');
+          return new Blob(chunks, { type: 'application/pdf' });
+        }
+
+        function makePdfFile() {
+          return new Promise(function (resolve, reject) {
+            var cv = drawSheetToCanvas();
+            cv.toBlob(function (blob) {
+              if (!blob) { reject(new Error('canvas')); return; }
+              blob.arrayBuffer().then(function (buf) {
+                var pdf = jpegToPdfBlob(buf, cv.width, cv.height);
+                resolve(new File([pdf], fileBase() + '.pdf', { type: 'application/pdf' }));
+              }, reject);
+            }, 'image/jpeg', 0.92);
+          });
+        }
+        function downloadFile(file) {
+          var url = URL.createObjectURL(file);
+          var a = document.createElement('a');
+          a.href = url;
+          a.download = file.name;
+          document.body.appendChild(a);
+          a.click();
+          a.remove();
+          setTimeout(function () { URL.revokeObjectURL(url); }, 4000);
+        }
+
+        var pdfBtn = document.getElementById('pdfBtn');
+        pdfBtn.addEventListener('click', function () {
+          if (editing) { var inp = editing.input; commitEdit(); inp.blur(); }
+          printNote.hidden = true;
+          var oldLabel = pdfBtn.textContent;
+          pdfBtn.disabled = true;
+          pdfBtn.textContent = 'PDFを作成中…';
+          makePdfFile().then(function (file) {
+            pdfBtn.disabled = false;
+            pdfBtn.textContent = oldLabel;
+            if (navigator.canShare && navigator.canShare({ files: [file] })) {
+              navigator.share({ files: [file] }).catch(function (err) {
+                if (err && err.name !== 'AbortError') downloadFile(file);
+              });
+            } else {
+              downloadFile(file);
+              showNote('この環境では保存先アプリを選べないため、ダウンロードに保存しました。');
+            }
+          }).catch(function () {
+            pdfBtn.disabled = false;
+            pdfBtn.textContent = oldLabel;
+            showNote('PDFの作成に失敗しました。下の「印刷から保存する」を試してください。');
+          });
         });
 
         /* ---------------- 初期化 ---------------- */
