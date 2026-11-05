@@ -4,7 +4,14 @@
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
     <meta name="color-scheme" content="light dark" />
-    <link rel="icon" href="data:," />
+    <link rel="manifest" href="manifest.json" />
+    <meta name="theme-color" content="#14532d" />
+    <meta name="mobile-web-app-capable" content="yes" />
+    <meta name="apple-mobile-web-app-capable" content="yes" />
+    <meta name="apple-mobile-web-app-status-bar-style" content="default" />
+    <meta name="apple-mobile-web-app-title" content="出面表" />
+    <link rel="apple-touch-icon" href="apple-touch-icon.png" />
+    <link rel="icon" type="image/png" sizes="192x192" href="icon-192.png" />
     <title>出面表入力</title>
     <style>
       :root {
@@ -332,6 +339,7 @@
         </label>
       </div>
       <p class="note">入力はこの端末の中だけに自動で保存されます（サーバーには送られません）。月末は下の「PDFにする」を押すとPDFが作られます。iPhoneでは保存先を選ぶ画面が開き、Androidではダウンロードに保存されます（ファイルを開くと開くアプリを選べます）。ファイル名は自動で「<span id="noteFileName">出面_2026年11月.pdf</span>」になります。コンビニでは、保存したPDFを選んで印刷してください。</p>
+      <p class="note">ホーム画面に追加するとアプリのように開けます。Android（Chrome）はメニューの「アプリをインストール／ホーム画面に追加」、iPhone（Safari）は共有ボタンの「ホーム画面に追加」から。最初からホーム画面のアイコンから使ってください（ブラウザで入れた内容と保存場所が分かれることがあります）。</p>
     </div>
 
     <div class="sheet-viewport" id="sheetViewport">
@@ -1038,6 +1046,14 @@
           resizeTimer = setTimeout(computeFit, 120);
         });
       })();
+    </script>
+    <script>
+      /* PWA: ホーム画面にインストールできるようにする */
+      if ('serviceWorker' in navigator) {
+        window.addEventListener('load', function () {
+          navigator.serviceWorker.register('./sw.js').catch(function () {});
+        });
+      }
     </script>
   </body>
 </html>
