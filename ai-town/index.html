@@ -1,0 +1,498 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+<title>AIタウン v0</title>
+<style>
+  * { margin:0; padding:0; box-sizing:border-box; -webkit-tap-highlight-color:transparent; }
+  html,body { width:100%; height:100%; overflow:hidden; background:#bfe6f5; font-family:"Hiragino Maru Gothic ProN","Hiragino Sans","Noto Sans JP",sans-serif; }
+  #scene { position:fixed; inset:0; }
+  canvas { display:block; }
+  .chip {
+    position:fixed; top:10px; left:10px; z-index:10;
+    background:rgba(255,255,255,.92); border-radius:14px; padding:8px 12px;
+    box-shadow:0 2px 10px rgba(60,80,100,.18); max-width:78vw;
+  }
+  .chip .title { font-size:16px; font-weight:800; color:#33424f; letter-spacing:.02em; }
+  .chip .sub { font-size:11px; color:#7a8a96; margin-top:2px; line-height:1.5; }
+  .chip .sub b { color:#e08a2e; }
+  #logbar {
+    position:fixed; left:10px; right:10px; bottom:86px; z-index:10;
+    background:rgba(38,50,60,.82); color:#fff; border-radius:12px;
+    padding:8px 12px; font-size:13px; line-height:1.5; min-height:38px;
+    display:flex; align-items:center; gap:8px; backdrop-filter:blur(3px);
+  }
+  #logbar .who { font-weight:800; white-space:nowrap; }
+  #logbar .what { opacity:.95; }
+  #bar {
+    position:fixed; left:0; right:0; bottom:0; z-index:11;
+    padding:10px 10px calc(12px + env(safe-area-inset-bottom));
+    display:flex; gap:8px; justify-content:center; flex-wrap:wrap;
+    background:linear-gradient(to top, rgba(255,255,255,.85), rgba(255,255,255,0));
+  }
+  #bar button {
+    border:none; border-radius:999px; padding:12px 16px; font-size:14px; font-weight:700;
+    background:#fff; color:#33424f; box-shadow:0 2px 8px rgba(60,80,100,.22); cursor:pointer;
+    font-family:inherit;
+  }
+  #bar button.on { background:#33424f; color:#fff; }
+  #bar button:active { transform:scale(.96); }
+  #loading {
+    position:fixed; inset:0; z-index:20; display:flex; align-items:center; justify-content:center;
+    background:#bfe6f5; color:#33424f; font-size:15px; font-weight:700;
+  }
+</style>
+</head>
+<body>
+<div id="scene"></div>
+<div id="loading">町を作っています…</div>
+<div class="chip">
+  <div class="title">🏘️ AIタウン v0</div>
+  <div class="sub">いまは<b>デザイン確認用のデモ再生</b>です（本物のAIはまだ未接続）。次の段階で ChatGPT / Claude / Gemini 本人を接続します。</div>
+</div>
+<div id="logbar"><span class="who">📣</span><span class="what">タウンの様子がここに流れます</span></div>
+<div id="bar">
+  <button id="btnPlay" class="on">⏸ 止める</button>
+  <button id="btnSpeed">速度 ×1</button>
+  <button data-cam="all" class="cambtn on">全体</button>
+  <button data-cam="plaza" class="cambtn">広場</button>
+  <button data-cam="cafe" class="cambtn">カフェ</button>
+  <button data-cam="hill" class="cambtn">丘</button>
+</div>
+
+<script type="importmap">
+{ "imports": {
+  "three": "https://unpkg.com/three@0.160.0/build/three.module.js",
+  "three/addons/": "https://unpkg.com/three@0.160.0/examples/jsm/"
+} }
+</script>
+<script type="module">
+import * as THREE from 'three';
+import { OrbitControls } from 'three/addons/controls/OrbitControls.js';
+
+/* ============ 基本セットアップ ============ */
+const container = document.getElementById('scene');
+const renderer = new THREE.WebGLRenderer({ antialias:true });
+renderer.setPixelRatio(Math.min(devicePixelRatio, 2));
+renderer.setSize(innerWidth, innerHeight);
+renderer.shadowMap.enabled = true;
+renderer.shadowMap.type = THREE.PCFSoftShadowMap;
+container.appendChild(renderer.domElement);
+
+const scene = new THREE.Scene();
+scene.background = new THREE.Color(0xbfe6f5);
+scene.fog = new THREE.Fog(0xbfe6f5, 70, 130);
+
+const camera = new THREE.PerspectiveCamera(46, innerWidth/innerHeight, 0.1, 300);
+camera.position.set(21, 21, 27);
+
+const controls = new OrbitControls(camera, renderer.domElement);
+controls.target.set(0, 0, 3);
+controls.enableDamping = true;
+controls.dampingFactor = 0.06;
+controls.maxPolarAngle = Math.PI * 0.46;
+controls.minDistance = 7;
+controls.maxDistance = 70;
+
+scene.add(new THREE.HemisphereLight(0xeaf7ff, 0x8fbf7a, 0.95));
+const sun = new THREE.DirectionalLight(0xfff6e0, 1.6);
+sun.position.set(18, 30, 12);
+sun.castShadow = true;
+sun.shadow.mapSize.set(2048, 2048);
+sun.shadow.camera.left = -40; sun.shadow.camera.right = 40;
+sun.shadow.camera.top = 40; sun.shadow.camera.bottom = -40;
+scene.add(sun);
+
+/* ============ 寸法基準（キャラ1 : ドア1.2 : 家2.5） ============ */
+const CH = 1.7;            // キャラ身長
+const DOOR_H = CH * 1.2;   // ドア高さ ≒ 2.04
+const WALL_H = 3.0;
+const HOUSE_H = CH * 2.5;  // 家の全高 ≒ 4.25
+
+const mat = (c, o={}) => new THREE.MeshStandardMaterial({ color:c, roughness:0.9, metalness:0, ...o });
+function box(w,h,d,c,x=0,y=0,z=0,parent=scene){
+  const m = new THREE.Mesh(new THREE.BoxGeometry(w,h,d), mat(c));
+  m.position.set(x,y,z); m.castShadow = true; m.receiveShadow = true;
+  parent.add(m); return m;
+}
+function canvasTex(w,h,draw){
+  const cv = document.createElement('canvas'); cv.width=w; cv.height=h;
+  draw(cv.getContext('2d'), w, h);
+  const t = new THREE.CanvasTexture(cv); t.colorSpace = THREE.SRGBColorSpace;
+  return t;
+}
+function textSprite(text, { fg='#33424f', bg='rgba(255,255,255,0.94)', font=44, pad=18, scale=1 }={}){
+  const cv = document.createElement('canvas'); const ctx = cv.getContext('2d');
+  ctx.font = `800 ${font}px "Hiragino Maru Gothic ProN","Hiragino Sans","Noto Sans JP",sans-serif`;
+  const tw = Math.ceil(ctx.measureText(text).width);
+  cv.width = tw + pad*2; cv.height = font + pad*2;
+  const c2 = cv.getContext('2d');
+  c2.fillStyle = bg;
+  c2.beginPath(); c2.roundRect(0,0,cv.width,cv.height,26); c2.fill();
+  c2.font = `800 ${font}px "Hiragino Maru Gothic ProN","Hiragino Sans","Noto Sans JP",sans-serif`;
+  c2.fillStyle = fg; c2.textBaseline='middle'; c2.textAlign='center';
+  c2.fillText(text, cv.width/2, cv.height/2+2);
+  const tex = new THREE.CanvasTexture(cv); tex.colorSpace = THREE.SRGBColorSpace;
+  const sp = new THREE.Sprite(new THREE.SpriteMaterial({ map:tex, transparent:true }));
+  sp.scale.set(cv.width/120*scale, cv.height/120*scale, 1);
+  return sp;
+}
+
+/* ============ 地面・道路・広場 ============ */
+const ground = new THREE.Mesh(new THREE.PlaneGeometry(90, 90), mat(0x8ecf6e));
+ground.rotation.x = -Math.PI/2; ground.receiveShadow = true; scene.add(ground);
+
+function road(w, d, x, z){
+  const r = box(w, 0.06, d, 0x5d6673, x, 0.03, z); r.castShadow = false;
+  const lineMat = mat(0xf5f2e8, { roughness:1 });
+  const horiz = w > d;
+  const len = horiz ? w : d;
+  for(let i=-len/2+2; i<len/2-1; i+=4){
+    const dash = new THREE.Mesh(new THREE.BoxGeometry(horiz?1.8:0.28, 0.02, horiz?0.28:1.8), lineMat);
+    dash.position.set(horiz ? x+i : x, 0.075, horiz ? z : z+i);
+    scene.add(dash);
+  }
+}
+road(76, 5.4, 0, 12);      // 横の通り
+road(5.4, 76, -14.5, 0);   // 縦の通り
+
+/* 広場（タイル） */
+const tileTex = canvasTex(256,256,(c)=>{
+  c.fillStyle='#e9e2d2'; c.fillRect(0,0,256,256);
+  c.strokeStyle='#cfc6ae'; c.lineWidth=5;
+  c.strokeRect(0,0,256,256); c.beginPath(); c.moveTo(128,0); c.lineTo(128,256); c.moveTo(0,128); c.lineTo(256,128); c.stroke();
+});
+tileTex.wrapS = tileTex.wrapT = THREE.RepeatWrapping; tileTex.repeat.set(4.5, 3.2);
+const plaza = new THREE.Mesh(new THREE.BoxGeometry(18, 0.12, 13),
+  new THREE.MeshStandardMaterial({ map:tileTex, roughness:1 }));
+plaza.position.set(1.5, 0.06, 1.5); plaza.receiveShadow = true; scene.add(plaza);
+
+/* ============ 家 ============ */
+function house(x, z, wallC, roofC, doorC, ry=0, two=false){
+  const g = new THREE.Group(); g.position.set(x, 0, z); g.rotation.y = ry; scene.add(g);
+  const wh = two ? WALL_H*1.7 : WALL_H;
+  box(4.6, wh, 4.2, wallC, 0, wh/2, 0, g);
+  const roofH = HOUSE_H - WALL_H;
+  const roof = new THREE.Mesh(new THREE.ConeGeometry(3.9, two ? roofH*0.8 : roofH, 4), mat(roofC));
+  roof.position.y = wh + (two ? roofH*0.4 : roofH/2); roof.rotation.y = Math.PI/4;
+  roof.castShadow = true; g.add(roof);
+  box(0.95, DOOR_H, 0.12, doorC, -0.9, DOOR_H/2, 2.13, g);           // ドア
+  box(1.0, 0.9, 0.1, 0xffe9a8, 1.1, 1.7, 2.13, g).material = mat(0xffe9a8, { emissive:0xffca55, emissiveIntensity:0.35 }); // 窓
+  box(1.0, 0.9, 0.1, 0xdff2ff, -1.2, wh-0.9, -2.13, g);
+  return g;
+}
+house(-4, -11, 0xf3ead8, 0x7fc4bd, 0x4a90c2);            // 青ドアの家
+house(6.5, -11.5, 0xfdf6ec, 0x5b8dd9, 0x2f2f33, 0, true); // 2階建て
+house(16.5, -11, 0xf3ead8, 0x63b8a6, 0xe07b2a);           // オレンジドア（Claude色）
+house(25.5, -3, 0xfdf6ec, 0x5b8dd9, 0x8a5cf6, -Math.PI/2); // 紫ドア（Gemini色）
+house(-7, -20, 0xfdf6ec, 0xe89a7a, 0x8a6f4d);
+house(24, -19, 0xf3ead8, 0x9db8d2, 0x5d7a99);
+
+/* ============ カフェ ============ */
+{
+  const g = new THREE.Group(); g.position.set(17, 0, 21.5); scene.add(g);
+  box(7.5, 3.4, 5.5, 0xfdf1e3, 0, 1.7, 0, g);
+  box(8.1, 0.5, 6.1, 0xe89a7a, 0, 3.65, 0, g);
+  box(1.0, DOOR_H, 0.12, 0x9a6a44, -1.6, DOOR_H/2, 2.78, g);
+  box(2.2, 1.5, 0.1, 0xdff2ff, 1.6, 1.6, 2.78, g);
+  const stripe = canvasTex(128, 32, (c)=>{
+    for(let i=0;i<8;i++){ c.fillStyle = i%2 ? '#f6f2ea' : '#ef8f7d'; c.fillRect(i*16,0,16,32); }
+  });
+  stripe.wrapS = THREE.RepeatWrapping; stripe.repeat.set(3,1);
+  const awn = new THREE.Mesh(new THREE.BoxGeometry(6.4, 0.12, 1.7),
+    new THREE.MeshStandardMaterial({ map:stripe, roughness:1 }));
+  awn.position.set(0, 2.6, 3.4); awn.rotation.x = 0.35; awn.castShadow = true; g.add(awn);
+  const sign = new THREE.Mesh(new THREE.BoxGeometry(2.6, 0.9, 0.15),
+    new THREE.MeshStandardMaterial({ map:canvasTex(256, 88, (c)=>{
+      c.fillStyle='#fdf6ec'; c.fillRect(0,0,256,88);
+      c.fillStyle='#a5662f'; c.font='800 52px sans-serif'; c.textAlign='center'; c.textBaseline='middle';
+      c.fillText('CAFE', 128, 46);
+    }), roughness:1 }));
+  sign.position.set(0.6, 3.1, 2.85); g.add(sign);
+  for(const [tx,tz] of [[-2.6,4.6],[1.8,4.8]]){
+    const t = new THREE.Mesh(new THREE.CylinderGeometry(0.55,0.55,0.07,20), mat(0xffffff));
+    t.position.set(tx, 0.78, tz); t.castShadow = true; g.add(t);
+    const leg = new THREE.Mesh(new THREE.CylinderGeometry(0.06,0.06,0.75,10), mat(0x8a8a8a));
+    leg.position.set(tx, 0.38, tz); g.add(leg);
+    box(0.42,0.5,0.42, 0xd9b48c, tx+0.75, 0.25, tz+0.3, g);
+    box(0.42,0.5,0.42, 0xd9b48c, tx-0.75, 0.25, tz-0.25, g);
+  }
+}
+
+/* ============ 公園 ============ */
+function pine(x, z, s=1, parent=scene){
+  const g = new THREE.Group(); g.position.set(x,0,z); g.scale.setScalar(s); parent.add(g);
+  const trunk = new THREE.Mesh(new THREE.CylinderGeometry(0.14,0.18,0.7,8), mat(0x8a6f4d));
+  trunk.position.y = 0.35; trunk.castShadow = true; g.add(trunk);
+  for(let i=0;i<3;i++){
+    const c = new THREE.Mesh(new THREE.ConeGeometry(1.05 - i*0.24, 1.15, 8), mat(0x3f9e4d));
+    c.position.y = 1.05 + i*0.62; c.castShadow = true; g.add(c);
+  }
+  return g;
+}
+function roundTree(x, z, s=1, parent=scene){
+  const g = new THREE.Group(); g.position.set(x,0,z); g.scale.setScalar(s); parent.add(g);
+  const trunk = new THREE.Mesh(new THREE.CylinderGeometry(0.13,0.17,0.8,8), mat(0x8a6f4d));
+  trunk.position.y = 0.4; trunk.castShadow = true; g.add(trunk);
+  const top = new THREE.Mesh(new THREE.IcosahedronGeometry(1.05, 1), mat(0x55b45e));
+  top.position.y = 1.75; top.castShadow = true; g.add(top);
+  return g;
+}
+{
+  const patch = box(15, 0.08, 11, 0xa5dd82, -23.5, 0.04, 22); patch.castShadow = false;
+  pine(-29, 18.5, 1.1); roundTree(-24.5, 20, 1.15); pine(-19.5, 24.5, 0.95); roundTree(-28, 25.5, 0.9);
+  const bench = new THREE.Group(); bench.position.set(-23, 0, 25.8); scene.add(bench);
+  box(1.9, 0.09, 0.5, 0xd9b48c, 0, 0.48, 0, bench);
+  box(1.9, 0.5, 0.09, 0xd9b48c, 0, 0.8, -0.24, bench);
+  box(0.12, 0.45, 0.45, 0x8a8a8a, -0.8, 0.22, 0, bench);
+  box(0.12, 0.45, 0.45, 0x8a8a8a, 0.8, 0.22, 0, bench);
+  for(const [fx,fz,fc] of [[-29.5,25,0xff8fb3],[-28.8,25.6,0xfff3f6],[-18.5,19,0xffd166],[-19.2,19.7,0xff8fb3]]){
+    const f = new THREE.Mesh(new THREE.SphereGeometry(0.13, 8, 8), mat(fc));
+    f.position.set(fx, 0.2, fz); scene.add(f);
+  }
+}
+
+/* ============ 丘（Museの観察ポイント） ============ */
+const HILL = { x:-24, z:-19, r:9.5, h:2.6 };
+{
+  const hill = new THREE.Mesh(new THREE.SphereGeometry(HILL.r, 24, 16), mat(0x7cc45f));
+  hill.scale.y = HILL.h / HILL.r; hill.position.set(HILL.x, 0, HILL.z);
+  hill.receiveShadow = true; hill.castShadow = true; scene.add(hill);
+  pine(HILL.x-5.5, HILL.z-3.5, 1.2); pine(HILL.x+5, HILL.z-4.5, 1.05); roundTree(HILL.x+6.2, HILL.z+2.5, 0.95);
+}
+const hillTopY = (x, z) => {
+  const dx = x - HILL.x, dz = z - HILL.z;
+  const d2 = (dx*dx + dz*dz) / (HILL.r*HILL.r);
+  return d2 >= 1 ? 0 : HILL.h * Math.sqrt(1 - d2);
+};
+
+/* ============ 街灯・雲 ============ */
+function lamp(x, z){
+  const g = new THREE.Group(); g.position.set(x,0,z); scene.add(g);
+  const pole = new THREE.Mesh(new THREE.CylinderGeometry(0.06,0.08,2.6,8), mat(0x4c5866));
+  pole.position.y = 1.3; pole.castShadow = true; g.add(pole);
+  const head = new THREE.Mesh(new THREE.SphereGeometry(0.21, 10, 10),
+    mat(0xfff2b0, { emissive:0xffdf7e, emissiveIntensity:0.7 }));
+  head.position.y = 2.7; g.add(head);
+}
+lamp(-9.7, 8.6); lamp(10.8, 8.6); lamp(-11.8, -6); lamp(10.8, 15.4); lamp(-20, 15.4);
+const clouds = [];
+for(const [cx,cy,cz,s] of [[-18,15,-26,1.2],[14,17,-20,1.5],[26,14,8,1.0],[-4,16,26,1.3]]){
+  const g = new THREE.Group(); g.position.set(cx,cy,cz); g.scale.setScalar(s); scene.add(g);
+  for(const [ox,oz,r] of [[0,0,1.5],[-1.4,0.3,1.05],[1.4,0.2,1.1],[0.4,-0.7,0.9]]){
+    const m = new THREE.Mesh(new THREE.IcosahedronGeometry(r,1), mat(0xffffff, { roughness:1 }));
+    m.position.set(ox, 0, oz); m.scale.y = 0.55; g.add(m);
+  }
+  clouds.push(g);
+}
+
+/* ============ キャラクター ============ */
+function bubbleSprite(){
+  const sp = textSprite('…', { font:40, scale:1 });
+  sp.visible = false; sp.position.y = CH + 1.35;
+  return sp;
+}
+function setBubble(sp, text){
+  const old = sp.material.map;
+  const tmp = textSprite(text, { font:40, scale:1 });
+  sp.material.map = tmp.material.map; sp.scale.copy(tmp.scale);
+  if(old) old.dispose();
+  sp.visible = true;
+}
+function makeCharacter(kind){
+  const g = new THREE.Group();
+  const bodyGeo = new THREE.SphereGeometry(0.55, 26, 20);
+  let bodyMat;
+  if(kind === 'chatgpt'){
+    const black = new THREE.Mesh(new THREE.SphereGeometry(0.55, 26, 20, Math.PI/2, Math.PI), mat(0x2b2b2e, { roughness:0.55 }));
+    const white = new THREE.Mesh(new THREE.SphereGeometry(0.55, 26, 20, -Math.PI/2, Math.PI), mat(0xf7f7f5, { roughness:0.55 }));
+    for(const h of [black, white]){ h.scale.y = 1.28; h.position.y = 0.86; h.castShadow = true; g.add(h); }
+  } else if(kind === 'gemini'){
+    const grad = canvasTex(16, 128, (c)=>{
+      const gr = c.createLinearGradient(0,0,0,128);
+      gr.addColorStop(0, '#5b8cff'); gr.addColorStop(0.55, '#6a6cf0'); gr.addColorStop(1, '#9a5cf0');
+      c.fillStyle = gr; c.fillRect(0,0,16,128);
+    });
+    bodyMat = new THREE.MeshStandardMaterial({ map:grad, roughness:0.55 });
+    const b = new THREE.Mesh(bodyGeo, bodyMat); b.scale.y = 1.28; b.position.y = 0.86; b.castShadow = true; g.add(b);
+  } else {
+    bodyMat = mat(kind === 'claude' ? 0xef8433 : 0xf6ead2, { roughness:0.6 });
+    const b = new THREE.Mesh(bodyGeo, bodyMat); b.scale.y = 1.28; b.position.y = 0.86; b.castShadow = true; g.add(b);
+  }
+  const armMat = kind === 'chatgpt' ? mat(0x55555a, { roughness:0.6 })
+               : kind === 'claude' ? mat(0xef8433, { roughness:0.6 })
+               : kind === 'gemini' ? mat(0x6a6cf0, { roughness:0.6 })
+               : mat(0xf6ead2, { roughness:0.6 });
+  for(const s of [-1, 1]){
+    const arm = new THREE.Mesh(new THREE.CapsuleGeometry(0.11, 0.3, 4, 10), armMat);
+    arm.position.set(0.6*s, 0.82, 0); arm.rotation.z = 0.3*s; arm.castShadow = true; g.add(arm);
+    const foot = new THREE.Mesh(new THREE.SphereGeometry(0.17, 12, 10), armMat);
+    foot.scale.set(1, 0.55, 1.25); foot.position.set(0.21*s, 0.09, 0.05); g.add(foot);
+    const eye = new THREE.Mesh(new THREE.SphereGeometry(0.05, 10, 10), mat(0x26221f, { roughness:0.35 }));
+    eye.position.set(0.19*s, 1.22, 0.5); g.add(eye);
+  }
+  if(kind === 'muse'){
+    const visor = new THREE.Mesh(new THREE.SphereGeometry(0.42, 20, 14),
+      new THREE.MeshStandardMaterial({ color:0x63dcc0, transparent:true, opacity:0.55, roughness:0.15 }));
+    visor.scale.set(1.05, 0.62, 0.72); visor.position.set(0, 1.3, 0.22); g.add(visor);
+  }
+  const names = { chatgpt:['ChatGPT','#33424f'], claude:['Claude','#e07b2a'], gemini:['Gemini','#4a5fd9'], muse:['Muse','#3d9c7c'] };
+  const label = textSprite(names[kind][0], { fg:names[kind][1], font:46, scale:0.95 });
+  label.position.y = CH + 0.42; g.add(label);
+  const bubble = bubbleSprite(); g.add(bubble);
+  scene.add(g);
+  return { kind, g, bubble, queue:[], action:null, t:0, speed:2.3 };
+}
+
+const chars = {
+  chatgpt: makeCharacter('chatgpt'),
+  claude:   makeCharacter('claude'),
+  gemini:   makeCharacter('gemini'),
+  muse:     makeCharacter('muse'),
+};
+chars.chatgpt.g.position.set(-1.6, 0, 2.2);
+chars.claude.g.position.set(1.2, 0, 3.2);
+chars.gemini.g.position.set(3.9, 0, 1.6);
+chars.muse.g.position.set(HILL.x, hillTopY(HILL.x, HILL.z), HILL.z);
+
+/* デモ用スクリプト（本物のAIの発言ではありません） */
+const M = (x,z)=>({type:'move', x, z});
+const W = (d)=>({type:'wait', d});
+const S = (text, d=3.2)=>({type:'say', text, d});
+chars.claude.queue = [
+  S('おはよう！今日は何しようか'), W(1),
+  M(8.5, 6.5), S('カフェ、開いてるかな'), W(1.5),
+  M(13.5, 16.5), W(2), M(4, 4), S('広場に戻ろう'), W(1),
+  M(1.2, 3.2), W(2),
+];
+chars.chatgpt.queue = [
+  W(2), S('公園、見てくる'), M(-4, 6), M(-11, 10),
+  M(-19, 17.5), W(2.5), S('ベンチ空いてた'), M(-11, 10), M(-3, 5),
+  M(-1.6, 2.2), W(2),
+];
+chars.gemini.queue = [
+  W(4), M(6, -3.5), S('あの家、屋根が青いね'), W(2),
+  M(12, -6.5), W(2), M(5, 0.5), S('ただいまー'), M(3.9, 1.6), W(3),
+];
+chars.muse.queue = [ S('観察中…', 4), W(6), S('みんな動いてる', 3.5), W(8) ];
+
+const logbar = document.getElementById('logbar');
+function log(who, color, what){
+  logbar.innerHTML = '';
+  const w = document.createElement('span'); w.className='who'; w.style.color = color; w.textContent = who;
+  const t = document.createElement('span'); t.className='what'; t.textContent = what;
+  logbar.append(w, t);
+}
+const NAME_JA = { chatgpt:'ChatGPT', claude:'Claude', gemini:'Gemini', muse:'Muse' };
+const NAME_COLOR = { chatgpt:'#e8e8e8', claude:'#ffb066', gemini:'#a9b8ff', muse:'#8fe3c8' };
+
+function stepChar(c, dt){
+  if(!c.action){
+    if(c.queue.length === 0) return;
+    c.action = c.queue.shift(); c.t = 0;
+    if(c.action.type === 'say'){
+      setBubble(c.bubble, c.action.text);
+      log(NAME_JA[c.kind], NAME_COLOR[c.kind], c.action.text);
+    }
+  }
+  const a = c.action; c.t += dt;
+  if(a.type === 'move'){
+    const p = c.g.position;
+    const dx = a.x - p.x, dz = a.z - p.z;
+    const dist = Math.hypot(dx, dz);
+    const step = c.speed * dt;
+    if(dist <= step){
+      p.x = a.x; p.z = a.z; c.action = null;
+      p.y = c.kind === 'muse' ? hillTopY(p.x, p.z) : 0;
+    } else {
+      p.x += dx/dist*step; p.z += dz/dist*step;
+      c.g.rotation.y = Math.atan2(dx, dz);
+      p.y = (c.kind === 'muse' ? hillTopY(p.x, p.z) : 0) + Math.abs(Math.sin(performance.now()*0.012))*0.06;
+    }
+    if(c.kind === 'muse') p.y = hillTopY(p.x, p.z);
+  } else if(a.type === 'wait'){
+    if(c.t >= a.d) c.action = null;
+  } else if(a.type === 'say'){
+    if(c.t >= a.d){ c.bubble.visible = false; c.action = null; }
+  }
+  if(c.queue.length === 0 && !c.action && c.kind !== 'muse'){
+    /* ループ再生 */
+  }
+}
+/* キューが尽きたら最初の並びに戻してループ */
+const initialQueues = {};
+for(const k in chars) initialQueues[k] = chars[k].queue.slice();
+setInterval(()=>{
+  for(const k in chars){
+    const c = chars[k];
+    if(c.queue.length === 0 && !c.action){
+      c.queue = initialQueues[k].slice();
+      const home = { chatgpt:[-1.6,2.2], claude:[1.2,3.2], gemini:[3.9,1.6], muse:[HILL.x, HILL.z] }[k];
+      c.g.position.x = home[0]; c.g.position.z = home[1];
+      if(k === 'muse') c.g.position.y = hillTopY(home[0], home[1]); else c.g.position.y = 0;
+    }
+  }
+}, 1000);
+
+/* ============ カメラプリセット・UI ============ */
+const CAMS = {
+  all:   { pos:[21,21,27],  tgt:[0,0,3] },
+  plaza: { pos:[7,7.5,13],  tgt:[1.5,0.8,1.5] },
+  cafe:  { pos:[11,5.5,13], tgt:[17,1.2,21] },
+  hill:  { pos:[-13,9,-6],  tgt:[-24,2,-19] },
+};
+let camAnim = null;
+function goCam(name){
+  const c = CAMS[name]; if(!c) return;
+  camAnim = { t:0, fromP:camera.position.clone(), fromT:controls.target.clone(),
+              toP:new THREE.Vector3(...c.pos), toT:new THREE.Vector3(...c.tgt) };
+  document.querySelectorAll('.cambtn').forEach(b=>b.classList.toggle('on', b.dataset.cam===name));
+}
+document.querySelectorAll('.cambtn').forEach(b=>b.addEventListener('click', ()=>goCam(b.dataset.cam)));
+
+let playing = true, speedMul = 1;
+const btnPlay = document.getElementById('btnPlay');
+btnPlay.addEventListener('click', ()=>{
+  playing = !playing;
+  btnPlay.textContent = playing ? '⏸ 止める' : '▶ 再生';
+  btnPlay.classList.toggle('on', playing);
+});
+const btnSpeed = document.getElementById('btnSpeed');
+btnSpeed.addEventListener('click', ()=>{
+  speedMul = speedMul === 1 ? 2 : speedMul === 2 ? 4 : 1;
+  btnSpeed.textContent = '速度 ×' + speedMul;
+});
+
+/* ============ メインループ ============ */
+const clock = new THREE.Clock();
+function animate(){
+  requestAnimationFrame(animate);
+  const rawDt = Math.min(clock.getDelta(), 0.05);
+  const dt = playing ? rawDt * speedMul : 0;
+  if(dt > 0){
+    for(const k in chars) stepChar(chars[k], dt);
+    for(const cl of clouds){ cl.position.x += dt * 0.25; if(cl.position.x > 45) cl.position.x = -45; }
+  }
+  if(camAnim){
+    camAnim.t += rawDt / 0.9;
+    const e = camAnim.t >= 1 ? 1 : 1 - Math.pow(1 - camAnim.t, 3);
+    camera.position.lerpVectors(camAnim.fromP, camAnim.toP, e);
+    controls.target.lerpVectors(camAnim.fromT, camAnim.toT, e);
+    if(camAnim.t >= 1) camAnim = null;
+  }
+  controls.update();
+  renderer.render(scene, camera);
+}
+animate();
+document.getElementById('loading').style.display = 'none';
+
+addEventListener('resize', ()=>{
+  camera.aspect = innerWidth/innerHeight;
+  camera.updateProjectionMatrix();
+  renderer.setSize(innerWidth, innerHeight);
+});
+log('Muse', NAME_COLOR.muse, 'AIタウン v0、デモ再生を始めました');
+</script>
+</body>
+</html>
