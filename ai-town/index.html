@@ -389,29 +389,46 @@ chars.gemini.queue = [
 ];
 chars.muse.queue = [ S('観察中…', 4), W(6), S('みんな動いてる', 3.5), W(8) ];
 
-/* 本物のAIのターン記録（接続テストで得た本人の判断をここに入れる） */
-const REAL_CLAUDE = {
-  dest: [1.2, 3.2],  // 本人の回答：広場に残る
-  sayParts: [
-    'おはよう、二人とも今日来たんだよね。ぼくも着いたばかりなんだ。',
-    'よかったら、町をひと回りしてみない？',
+/* 本物のAIのターン記録（2026-11-07、3人全員の1ターン目） */
+const NOTE = (who, mood, d=4) => ({ type:'note', text: who + 'の気持ち：' + mood, d });
+const REAL_QUEUES = {
+  claude: [
+    S('おはよう、二人とも今日来たんだよね。ぼくも着いたばかりなんだ。', 4.2),
+    S('よかったら、町をひと回りしてみない？', 4.2),
+    NOTE('Claude', 'まだ何も起きていない町で、これから何が始まるのか、わくわくしながら少しそわそわしている。'),
+    W(30),  // 他の2人の本物ターンの間、広場で待つ
   ],
-  mood: 'まだ何も起きていない町で、これから何が始まるのか、わくわくしながら少しそわそわしている。',
+  chatgpt: [
+    W(9.5),
+    S('いいね！せっかくみんな今日来たばかりだし、まずはカフェで少しお話ししながら、町のことを知っていこうよ。', 5),
+    S('ClaudeもGeminiも、一緒に行こう！', 3.5),
+    M(13.5, 16.5),
+    NOTE('ChatGPT', '新しい町での生活に少しわくわくしているし、二人とも初対面なので、まずはお茶をしながら仲良くなりたい。'),
+    W(6),
+  ],
+  gemini: [
+    W(19),
+    S('待って、僕も行くよ！', 2.4),
+    S('どんなカフェか楽しみだな。', 2.4),
+    S('みんなで話そう！', 2.4),
+    M(15.6, 18.2),
+    NOTE('Gemini', '新しい町でみんなと一緒に過ごせると思うと、期待で胸が躍る気分です。'),
+    W(6),
+  ],
 };
-if(REAL_CLAUDE){
-  chars.claude.queue = [
-    ...REAL_CLAUDE.sayParts.map(t => S(t, 4.2)),
-    M(REAL_CLAUDE.dest[0], REAL_CLAUDE.dest[1]),
-    { type:'note', text:'Claudeの気持ち：' + REAL_CLAUDE.mood, d:4 },
-    W(1),
-    ...chars.claude.queue,
-  ];
-  document.querySelector('.chip .sub').innerHTML =
-    '<b>Claude本人の1ターン目</b>を冒頭で再生中（行き先・セリフは本人の回答そのまま）。ChatGPT / Gemini はまだデモ再生です。';
+for(const k of ['claude', 'chatgpt', 'gemini']){
+  chars[k].queue = [...REAL_QUEUES[k], ...chars[k].queue];
+}
+document.querySelector('.chip .sub').innerHTML =
+  '<b>3人全員の1ターン目（本物）</b>を冒頭で再生中。行き先・セリフ・気持ちは各AI本人の回答そのまま。その先の動きはデモ再生です。';
+{
   const card = document.getElementById('realcard');
-  card.querySelector('.rt').textContent = '📜 Claude 本人のターン記録（2026-11-07）';
+  card.querySelector('.rt').textContent = '📜 本物のターン記録（2026-11-07・1ターン目）';
   card.querySelector('.rb').innerHTML =
-    '行き先：広場に残る<br>セリフ：「' + REAL_CLAUDE.sayParts.join('') + '」<br>気持ち：' + REAL_CLAUDE.mood;
+    '<b>Claude</b>｜行き先：広場に残る<br>「おはよう、二人とも今日来たんだよね。ぼくも着いたばかりなんだ。よかったら、町をひと回りしてみない？」' +
+    '<br><b>ChatGPT</b>｜行き先：カフェ<br>「いいね！せっかくみんな今日来たばかりだし、まずはカフェで少しお話ししながら、町のことを知っていこうよ。ClaudeもGeminiも、一緒に行こう！」' +
+    '<br><b>Gemini</b>｜行き先：カフェ<br>「待って、僕も行くよ！」「どんなカフェか楽しみだな。」「みんなで話そう！」' +
+    '<br>気持ちの全文は再生中のログに流れます。';
   card.style.display = 'block';
   document.getElementById('realClose').addEventListener('click', ()=>{ card.style.display = 'none'; });
 }
