@@ -377,6 +377,27 @@ chars.gemini.queue = [
 ];
 chars.muse.queue = [ S('観察中…', 4), W(6), S('みんな動いてる', 3.5), W(8) ];
 
+/* 本物のAIのターン記録（接続テストで得た本人の判断をここに入れる） */
+const REAL_CLAUDE = {
+  dest: [1.2, 3.2],  // 本人の回答：広場に残る
+  sayParts: [
+    'おはよう、二人とも今日来たんだよね。ぼくも着いたばかりなんだ。',
+    'よかったら、町をひと回りしてみない？',
+  ],
+  mood: 'まだ何も起きていない町で、これから何が始まるのか、わくわくしながら少しそわそわしている。',
+};
+if(REAL_CLAUDE){
+  chars.claude.queue = [
+    ...REAL_CLAUDE.sayParts.map(t => S(t, 4.2)),
+    M(REAL_CLAUDE.dest[0], REAL_CLAUDE.dest[1]),
+    { type:'note', text:'Claudeの気持ち：' + REAL_CLAUDE.mood, d:4 },
+    W(1),
+    ...chars.claude.queue,
+  ];
+  document.querySelector('.chip .sub').innerHTML =
+    '<b>Claude本人の1ターン目</b>を冒頭で再生中（行き先・セリフは本人の回答そのまま）。ChatGPT / Gemini はまだデモ再生です。';
+}
+
 const logbar = document.getElementById('logbar');
 function log(who, color, what){
   logbar.innerHTML = '';
@@ -395,6 +416,9 @@ function stepChar(c, dt){
       setBubble(c.bubble, c.action.text);
       log(NAME_JA[c.kind], NAME_COLOR[c.kind], c.action.text);
     }
+    if(c.action.type === 'note'){
+      log(NAME_JA[c.kind], NAME_COLOR[c.kind], '📝 ' + c.action.text);
+    }
   }
   const a = c.action; c.t += dt;
   if(a.type === 'move'){
@@ -411,7 +435,7 @@ function stepChar(c, dt){
       p.y = (c.kind === 'muse' ? hillTopY(p.x, p.z) : 0) + Math.abs(Math.sin(performance.now()*0.012))*0.06;
     }
     if(c.kind === 'muse') p.y = hillTopY(p.x, p.z);
-  } else if(a.type === 'wait'){
+  } else if(a.type === 'wait' || a.type === 'note'){
     if(c.t >= a.d) c.action = null;
   } else if(a.type === 'say'){
     if(c.t >= a.d){ c.bubble.visible = false; c.action = null; }
