@@ -1132,7 +1132,46 @@
           });
         });
 
+        /* ---------------- 取り込みリンク (?ym=&day=&hiru=... ) ----------------
+           ALTEQの現場詳細PDFから作る取り込みリンク用。指定された欄だけを、
+           空欄のセルにだけ入れる（入力済みのセルは上書きしない）。
+           例: ?ym=2026-11&day=10&hiru=NNビル2階改修工事
+           車の日（職長）は eki を付けない＝最寄り駅は空欄のまま。 */
+        function applyImportParams() {
+          var q = null;
+          try { q = new URLSearchParams(window.location.search); } catch (e) { return; }
+          if (!q || !q.get('ym') || !q.get('day')) return;
+          var ym = q.get('ym');
+          if (!/^\d{4}-\d{2}$/.test(ym)) return;
+          var day = parseInt(q.get('day'), 10);
+          var p = parseKey(ym);
+          if (!day || day < 1 || day > daysInMonth(p.y, p.m)) return;
+          var data = dayData(ym, day);
+          var filled = [];
+          var skipped = [];
+          COLS.forEach(function (col) {
+            var v = q.get(col.key);
+            if (v === null || v === '') return;
+            if (String(data[col.key] || '').trim() !== '') { skipped.push(col.label); return; }
+            data[col.key] = v;
+            if (col.type === 'site') pushSite(v);
+            filled.push(col.label);
+          });
+          if (!filled.length && !skipped.length) return;
+          curKey = ym;
+          save();
+          if (window.history && window.history.replaceState) {
+            try { window.history.replaceState(null, '', window.location.pathname); } catch (e) {}
+          }
+          var msg = '取り込みました：' + p.y + '年' + p.m + '月' + day + '日';
+          if (filled.length) msg += '「' + filled.join('・') + '」を入力';
+          if (skipped.length) msg += '（「' + skipped.join('・') + '」は入力済みのためそのまま）';
+          msg += '。';
+          setTimeout(function () { showNote(msg); }, 0);
+        }
+
         /* ---------------- 初期化 ---------------- */
+        applyImportParams();
         nameInput.value = store.name || '';
         buildMonthOptions();
         renderMonth();
