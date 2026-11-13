@@ -144,14 +144,18 @@
 
       .sheet {
         width: 210mm;
-        height: 297mm;
+        /* 画面では固定高さにしない: 端末によって行の高さが設計より大きく
+           描画されると、固定297mm＋overflow:hidden で下の行が切り捨てられ
+           「20日までしか入力できない」不具合になる（iPhone実例）。
+           画面では用紙を必要なだけ伸ばし、全日分を必ず表示する。
+           印刷時のみ従来どおりA4ちょうどに固定する（下の @media print）。 */
+        min-height: 297mm;
         margin: 0 auto;
         background: #ffffff;
         color: #000000;
         color-scheme: light;
         padding: 66pt 23mm 0 23mm;
         box-shadow: 0 2px 18px rgba(20, 30, 28, 0.22);
-        overflow: hidden;
         flex: none;
       }
       .sheet-head {
@@ -361,6 +365,9 @@
           margin: 0;
           box-shadow: none;
           page-break-after: avoid;
+          /* 印刷は従来どおりA4ちょうど（画面側の伸縮は印刷に持ち込まない） */
+          height: 297mm;
+          overflow: hidden;
         }
         td.cell input.edit { display: none !important; }
         td.cell .view { visibility: visible !important; }
